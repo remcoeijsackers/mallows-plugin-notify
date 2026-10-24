@@ -1,0 +1,12 @@
+{
+  "name": "agent-control-notify",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Notify plugin for Agent Control: push alerts through ntfy, Pushover or Telegram.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": { "node": ">=24" }
+}

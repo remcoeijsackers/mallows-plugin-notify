@@ -1,0 +1,38 @@
+{
+  "id": "notify",
+  "name": "Notify",
+  "version": "1.0.0",
+  "sdk": 1,
+  "description": "Push alerts on your phone through ntfy, Pushover or Telegram: when an agent asks you something or needs an approval, when a draft waits for you, when a run gets stuck, and a reminder when something waits longer than you like.",
+  "author": "Remco Eijsackers",
+  "homepage": "https://github.com/remcoeijsackers/agent-control-notify",
+  "permissions": ["events", "settings", "secrets", "schedule", "waiting", "routes", "db"],
+  "main": "index.mjs",
+  "events": ["input.requested", "outbox.proposed", "outbox.failed", "run.blocked", "task.status"],
+  "settings": [
+    { "key": "service", "label": "Send through", "type": "select", "options": [
+      { "value": "ntfy", "label": "ntfy (app or self-hosted)" },
+      { "value": "pushover", "label": "Pushover" },
+      { "value": "telegram", "label": "Telegram bot" }
+    ] },
+    { "key": "ntfyServer", "label": "ntfy server", "type": "url", "placeholder": "https://ntfy.sh" },
+    { "key": "ntfyTopic", "label": "ntfy topic", "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$", "help": "On ntfy.sh anyone who knows the topic can read it: pick a long random name, or use your own server with a token." },
+    { "key": "telegramChatId", "label": "Telegram chat ID", "type": "string", "pattern": "^-?\\d{1,20}$", "help": "Your own chat with the bot; send it a message, then look up the chat ID (see the README)." },
+    { "key": "questions", "label": "Questions and approvals", "type": "boolean" },
+    { "key": "drafts", "label": "Drafts waiting for approval", "type": "boolean" },
+    { "key": "problems", "label": "Stuck runs, failed tasks and messages that did not go out", "type": "boolean" },
+    { "key": "done", "label": "Finished tasks", "type": "boolean" },
+    { "key": "remindAfterMin", "label": "Remind me when something waits longer than (minutes, 0 = never)", "type": "number", "min": 0, "max": 1440 },
+    { "key": "details", "label": "Put the question or reason in the push (otherwise only the task)", "type": "boolean" },
+    { "key": "dashboardUrl", "label": "Dashboard address for links in the push", "type": "url", "placeholder": "http://localhost:4317", "help": "A link to localhost only opens on this Mac. Use an address your phone can reach (for example over Tailscale) to open it from the push." }
+  ],
+  "secrets": [
+    { "key": "ntfyToken", "label": "ntfy access token (only for a protected topic)" },
+    { "key": "pushoverAppToken", "label": "Pushover application token" },
+    { "key": "pushoverUserKey", "label": "Pushover user key" },
+    { "key": "telegramBotToken", "label": "Telegram bot token" }
+  ],
+  "tables": ["sent"],
+  "routes": [{ "method": "GET", "path": "/status" }, { "method": "POST", "path": "/test" }],
+  "nav": [{ "id": "notify", "label": "Notify", "page": "index.html" }]
+}

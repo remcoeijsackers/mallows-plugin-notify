@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notify</title>
+<!--
+  The Notify page, shown by Agent Control in a sandboxed iframe. Everything is in this file; data comes through the
+  dashboard's bridge (postMessage), which only reaches this plugin's own routes: GET /status and POST /test.
+-->
+<style>
+  :root {
+    --surface: rgba(255,255,255,.04); --border: rgba(140,160,255,.16); --border-strong: rgba(140,160,255,.3);
+    --text: #e9ecf6; --muted: #8e97b3; --accent: #7c95ff; --accent-contrast: #0b0e1a; --ok: #3ccf91; --warn: #f5b84a; --bad: #ef6461; --radius: 14px;
+    color-scheme: dark;
+  }
+  :root[data-mode="light"] { color-scheme: light; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; color: var(--text); font: 14px/1.45 var(--font, system-ui, -apple-system, "Segoe UI", sans-serif); }
+  body { padding: 16px; }
+  h1 { font-size: 1.2rem; margin: 0; }
+  h2 { font-size: .8rem; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .spacer { flex: 1; }
+  .meta { color: var(--muted); font-size: .85rem; }
+  .btn { font: inherit; font-size: .85rem; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border-strong); background: transparent; color: var(--text); cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); font-weight: 600; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-top: 14px; }
+  .state { display: flex; gap: 12px; align-items: flex-start; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; margin-top: 4px; flex: none; background: var(--muted); }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .dot.warn { background: var(--warn); box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 20%, transparent); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip { font-size: .75rem; font-weight: 600; border-radius: 999px; padding: 2px 9px; border: 1px solid var(--border-strong); color: var(--muted); }
+  .chip.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li.sent { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; padding: 7px 0; border-top: 1px solid var(--border); align-items: baseline; }
+  li.sent:first-child { border-top: 0; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  .err { color: var(--bad); font-size: .82rem; }
+  ol { margin: 6px 0 0 18px; padding: 0; } ol li { margin: 3px 0; }
+  code { font-size: .82rem; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <h1>Notify</h1>
+    <span class="meta">Push alerts on your phone</span>
+    <span class="spacer"></span>
+    <button class="btn" id="settings">Settings</button>
+    <button class="btn primary" id="test" disabled>Send test push</button>
+  </div>
+  <section class="panel" aria-label="Status"><div class="state" id="state"><span class="dot"></span><div class="meta">Loading…</div></div></section>
+  <section class="panel" aria-label="Recent pushes">
+    <h2>Recent pushes</h2>
+    <ul id="recent"></ul>
+  </section>
+  <section class="panel" aria-label="Setting up">
+    <h2>Setting up</h2>
+    <ol class="meta">
+      <li><strong>ntfy</strong>: install the ntfy app, subscribe to a long random topic, and enter that topic. Self-hosted or protected topic: also the server and an access token.</li>
+      <li><strong>Pushover</strong>: create an application on pushover.net and enter its token plus your user key.</li>
+      <li><strong>Telegram</strong>: make a bot with @BotFather, send it a message, then enter the bot token and your chat ID.</li>
+      <li>Choose what to get a push for, and after how many minutes a reminder comes for something still waiting.</li>
+    </ol>
+    <p class="meta">Settings are per workspace, keys are in the OS key store. Without "details" a push only names the task, not the question.</p>
+  </section>
+
+<script>
+  const pending = new Map();
+  let seq = 0, started = false;
+  function call(method, path, body) {
+    return new Promise((resolve, reject) => {
+      const id = ++seq;
+      pending.set(id, { resolve, reject });
+      parent.postMessage({ type: "agent-control:request", id, method, path, body }, "*");
+      setTimeout(() => { if (pending.delete(id)) reject(new Error("No answer from Agent Control")); }, 30000);
+    });
+  }
+  const toast = (message) => parent.postMessage({ type: "agent-control:toast", message }, "*");
+  addEventListener("message", (e) => {
+    if (e.source !== parent) return;
+    const m = e.data || {};
+    if (m.type === "agent-control:init") { applyTheme(m.theme); if (!started) { started = true; load(); } }
+    if (m.type === "agent-control:response" && pending.has(m.id)) {
+      const p = pending.get(m.id); pending.delete(m.id);
+      m.ok ? p.resolve(m.data) : p.reject(new Error(m.error || "Request failed"));
+    }
+  });
+  function applyTheme(t) {
+    if (!t) return;
+    const root = document.documentElement;
+    for (const [k, v] of Object.entries(t.vars || {})) if (v) root.style.setProperty(k, v);
+    if (t.font) root.style.setProperty("--font", t.font);
+    root.dataset.mode = t.mode === "light" ? "light" : "dark";
+  }
+  new ResizeObserver(() => parent.postMessage({ type: "agent-control:resize", height: document.documentElement.scrollHeight + 4 }, "*")).observe(document.body);
+  document.getElementById("settings").onclick = () => parent.postMessage({ type: "agent-control:navigate", href: "#/plugins" }, "*");
+
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const when = (iso) => new Date(iso).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const NAMES = { ntfy: "ntfy", pushover: "Pushover", telegram: "Telegram" };
+
+  function render(s) {
+    const ready = s.service && !s.missing.length;
+    const on = (k, label) => `<span class="chip${s.sends[k] ? " on" : ""}">${s.sends[k] ? "✓" : "–"} ${label}</span>`;
+    document.getElementById("state").innerHTML = `<span class="dot ${ready ? "ok" : "warn"}"></span><div>
+      <div><strong>${ready ? `Sending through ${esc(NAMES[s.service])}` : s.service ? `${esc(NAMES[s.service])} is not set up yet` : "Not set up yet"}</strong></div>
+      ${ready ? "" : `<div class="meta">Still needed: ${esc(s.missing.join(", "))}. Open Settings and fill in Notify for this workspace.</div>`}
+      <div class="chips">${on("questions", "Questions and approvals")}${on("drafts", "Drafts")}${on("problems", "Problems")}${on("done", "Finished tasks")}
+        <span class="chip${s.sends.remindAfterMin ? " on" : ""}">${s.sends.remindAfterMin ? `Reminder after ${s.sends.remindAfterMin} min` : "No reminders"}</span>
+        <span class="chip${s.sends.details ? " on" : ""}">${s.sends.details ? "With details" : "Task only"}</span></div>
+      <div class="meta" style="margin-top:6px">${s.waiting} waiting on you now · links open ${esc(s.dashboard)}</div></div>`;
+    document.getElementById("test").disabled = !ready;
+    document.getElementById("recent").innerHTML = s.recent.length
+      ? s.recent.map((r) => `<li class="sent"><span class="${r.ok ? "ok" : "bad"}">${r.ok ? "✓" : "✗"}</span><div><div>${esc(r.title)}</div>${r.error ? `<div class="err">${esc(r.error)}</div>` : ""}</div><span class="meta">${when(r.at)}</span></li>`).join("")
+      : `<li class="meta">Nothing sent yet.</li>`;
+  }
+  async function load() {
+    try { render(await call("GET", "/status")); }
+    catch (e) { document.getElementById("state").innerHTML = `<span class="dot warn"></span><div class="err">${esc(e.message)}</div>`; }
+  }
+  document.getElementById("test").onclick = async (ev) => {
+    ev.target.disabled = true;
+    try { await call("POST", "/test", {}); toast("Test push sent: check your phone"); }
+    catch (e) { toast(e.message); }
+    finally { load(); }
+  };
+  parent.postMessage({ type: "agent-control:ready" }, "*");
+  setInterval(() => { if (!document.hidden) load(); }, 30000);
+</script>
+</body>
+</html>
