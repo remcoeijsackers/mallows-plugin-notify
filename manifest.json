@@ -5,7 +5,7 @@
   "sdk": 1,
   "description": "Push alerts on your phone through ntfy, Pushover or Telegram: when an agent asks you something or needs an approval, when a draft waits for you, when a run gets stuck, and a reminder when something waits longer than you like.",
   "author": "Remco Eijsackers",
-  "homepage": "https://github.com/remcoeijsackers/agent-control-notify",
+  "homepage": "https://github.com/remcoeijsackers/mallows-plugin-notify",
   "permissions": ["events", "settings", "secrets", "schedule", "waiting", "routes", "db"],
   "main": "index.mjs",
   "events": ["input.requested", "outbox.proposed", "outbox.failed", "run.blocked", "task.status"],
